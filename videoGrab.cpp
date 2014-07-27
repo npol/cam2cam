@@ -19,6 +19,7 @@ struct blob_info {
     uint *AvgX;
     uint *AvgY;
 };
+/* Vision function prototypes */
 blob_info *capture_image(uchar debug);
 void get_image(Mat imgInput);
 vector<Mat> convert_to_hsv(Mat imgBGR);
@@ -30,8 +31,13 @@ Mat get_intersection(Mat imA, Mat imB);
 Mat gaussian_blur(Mat im, uchar bwidth);
 blob_info *blob_detect(Mat img);
 void print_blobs(blob_info *Blobs);
+void sort_blobs(blob_info *blobs);
+uint dist1(int x1, int x2, int y1, int y2);
 
+/* Protocol function prototypes */
 uchar is_start_condition(blob_info *BlobInfo);
+uchar is_first_nibble(blob_info *StartBlob, blob_info *FirstBlob);
+uchar is_second_nibble(blob_info *StartBlob, blob_info *SecondBlob);
 /*
 int main(){
     blob_info *start_blobs;
@@ -61,9 +67,46 @@ int main(){
 int main(){
     blob_info *start_blobs;
     start_blobs = capture_image(1);
+
+    uchar ctr = 0;
+    blob_info *blobs = start_blobs;
+    while(ctr < 10){
+        if(is_start_condition(blobs)){
+            printf("Found start condition on frame %d\n",ctr);
+            break;
+        }
+        blobs = capture_image(1);
+        ctr++;
+    }
+    //TODO: timeout condition
+    ctr = 0;
+    blob_info *start_blob = blobs;
+    blob_info *nibble_blob = capture_image(1);
+    while(ctr < 10){
+        if(is_first_nibble(start_blob, nibble_blob)){
+            printf("Found first nibble on frame %d\n",ctr);
+            break;
+        }
+        nibble_blob = capture_image(1);
+        ctr++;
+    }
+    //TODO: timeout condition
+    //TODO: Get nibble
+    ctr = 0;
+    nibble_blob = capture_image(1);
+    while(ctr < 10){
+        if(is_second_nibble(start_blob, nibble_blob)){
+            printf("Found second nibble on frame %d\n",ctr);
+            break;
+        }
+        nibble_blob = capture_image(1);
+        ctr++;
+    }
+    //TODO: Get nibble
     return 0;
 }
 
+/* Vision pipeline */
 blob_info *capture_image(uchar debug){
     /* Get single 320x240 frame */
     Mat imgBGR;
@@ -126,10 +169,9 @@ blob_info *capture_image(uchar debug){
 
     /* Blob detection */
     blob_info *Blobs = blob_detect(BGR_B_T);
-
+    sort_blobs(Blobs);
     if(debug)
         print_blobs(Blobs);
-
     return Blobs;
 }
 
@@ -228,38 +270,32 @@ blob_info *blob_detect(Mat img){
     uchar *blob_id_list;
     blob_id_list = new uchar [BlobInfo->blobCnt];
     BlobInfo->blobSize = new uint [BlobInfo->blobCnt];
-    //// Store blob info into 2d array:
-    //// id | Size | x | y
-    //int **blob_list;
+
     int blob_list_ptr = 0;
-    //blob_list = new int *[BlobInfo->blobCnt];
     for(int i=1; i<equiv_size;i++){
         if(blobCnt[i] == 0)
             continue;
         blob_id_list[blob_list_ptr] = i;
         BlobInfo->blobSize[blob_list_ptr] = blobCnt[i];
-        //blob_list[blob_list_ptr] = new int[4];
-        //blob_list[blob_list_ptr][0] = i;
-        //blob_list[blob_list_ptr][1] = blobCnt[i];
         blob_list_ptr++;
     }
     //Find Center of blobs
     BlobInfo->AvgX = new uint [BlobInfo->blobCnt];
     BlobInfo->AvgY = new uint [BlobInfo->blobCnt];
     for(int i = 0; i < BlobInfo->blobCnt; i++){
-        int avg_x = 0;
         int avg_y = 0;
+        int avg_x = 0;
         int id = blob_id_list[i];
         for(int j=0; j<img.rows; j++){
             for(int k=0; k<img.cols; k++){
                 if(img.at<uchar>(j,k) == id){
-                    avg_x += j;
-                    avg_y += k;
+                    avg_y += j;
+                    avg_x += k;
                 }
             }
         }
-        BlobInfo->AvgX[i] = avg_x / BlobInfo->blobSize[i];
         BlobInfo->AvgY[i] = avg_y / BlobInfo->blobSize[i];
+        BlobInfo->AvgX[i] = avg_x / BlobInfo->blobSize[i];
     }
     return BlobInfo;
 }
@@ -274,28 +310,95 @@ void print_blobs(blob_info *Blobs){
 }
 
 uchar is_start_condition(blob_info *BlobInfo){
-    if(BlobInfo->blobCnt != 5)
+    if(BlobInfo->blobCnt != 5){
+        printf("Found only %d blobs\n",BlobInfo->blobCnt);
         return 0;
-    uint avg_y = 0;
+    }
+    int avg_y = 0;
     for(int i=0; i<5; i++){
         avg_y += BlobInfo->AvgY[i];
     }
     avg_y = avg_y / 5;
     for(int i=0; i<5; i++){
-        if((BlobInfo->AvgY[i] - avg_y) > 25)
+        if(abs((int)(BlobInfo->AvgY[i]) - avg_y) > 25){
+            printf("Blobs too far away %d\n",abs(BlobInfo->AvgY[i] - avg_y));
             return 0;
+        }
     }
     return 1;
 }
 
 uchar is_first_nibble(blob_info *StartBlob, blob_info *FirstBlob){
+    //Check that we are out of the start condition.  Max four LEDs since white clk is off
+    if(FirstBlob->blobCnt > 4){
+        printf("More than four blobs\n");
+        return 0;
+    }
+    //Check if white clk LED is off
+    uchar n = FirstBlob->blobCnt;
+    uint clkX = StartBlob->AvgX[2];
+    uint clkY = StartBlob->AvgY[2];
+    for(int i=0; i<n; i++){
+        //If we found the middle LED, then return false
+        if(dist1(clkX, FirstBlob->AvgX[i], clkY, FirstBlob->AvgY[i]) < 25){
+            return 0;
+        }
+    }
+    return 1;
 }
 
 uchar is_second_nibble(blob_info *StartBlob, blob_info *SecondBlob){
+    //Check that we are out of the first nibble.  Min 1 LED since white clk is on
+    if(SecondBlob->blobCnt < 1){
+        return 0;
+    }
+    //Check if white clk LED is on
+    uchar n = SecondBlob->blobCnt;
+    uint clkX = StartBlob->AvgX[2];
+    uint clkY = StartBlob->AvgY[2];
+    for(int i=0; i<n; i++){
+        //If we found the middle LED, then return true
+        if(dist1(clkX, SecondBlob->AvgX[i], clkY, SecondBlob->AvgY[i]) < 25){
+            return 1;
+        }
+    }
+    return 0;
 }
 
 uchar get_nibble(blob_info *StartBlob, blob_info *ImgBlob){
     uchar nibble = 0;
 
+
 }
+
+uint dist1(int x1, int x2, int y1, int y2){
+    return abs(x1 - x2) + abs(y1 - y2);
+}
+
+void sort_blobs(blob_info *blobs){
+    uchar n = blobs->blobCnt;
+    uchar swapped = 1;
+    while(swapped){
+        swapped = 0;
+        for(int i = 1; i < n; i++){
+            if(blobs->AvgX[i-1] > blobs->AvgX[i]){
+                swapped = 1;
+                //Swap Y coordinate
+                uint temp = blobs->AvgY[i-1];
+                blobs->AvgY[i-1] = blobs->AvgY[i];
+                blobs->AvgY[i] = temp;
+                //Swap X coordinate
+                temp = blobs->AvgX[i-1];
+                blobs->AvgX[i-1] = blobs->AvgX[i];
+                blobs->AvgX[i] = temp;
+                //Swap sizes
+                temp = blobs->blobSize[i-1];
+                blobs->blobSize[i-1] = blobs->blobSize[i];
+                blobs->blobSize[i] = temp;
+            }
+        }
+    }
+    return;
+}
+
 
