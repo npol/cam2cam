@@ -38,6 +38,7 @@ uint dist1(int x1, int x2, int y1, int y2);
 uchar is_start_condition(blob_info *BlobInfo);
 uchar is_first_nibble(blob_info *StartBlob, blob_info *FirstBlob);
 uchar is_second_nibble(blob_info *StartBlob, blob_info *SecondBlob);
+uchar get_nibble(blob_info *StartBlob, blob_info *ImgBlob);
 /*
 int main(){
     blob_info *start_blobs;
@@ -91,7 +92,10 @@ int main(){
         ctr++;
     }
     //TODO: timeout condition
-    //TODO: Get nibble
+    //Get upper nibble
+    uchar nib = get_nibble(start_blob, nibble_blob);
+    uchar RXbyte = nib << 4;
+    printf("Upper Nibble:%x\n",nib);
     ctr = 0;
     nibble_blob = capture_image(1);
     while(ctr < 10){
@@ -102,7 +106,11 @@ int main(){
         nibble_blob = capture_image(1);
         ctr++;
     }
-    //TODO: Get nibble
+    //Get lower nibble
+    nib = get_nibble(start_blob, nibble_blob);
+    printf("Lower Niblle:%x\n",nib);
+    RXbyte |= nib;
+    printf("Received:%x\n",RXbyte);
     return 0;
 }
 
@@ -367,8 +375,25 @@ uchar is_second_nibble(blob_info *StartBlob, blob_info *SecondBlob){
 
 uchar get_nibble(blob_info *StartBlob, blob_info *ImgBlob){
     uchar nibble = 0;
-
-
+    uchar n = StartBlob->blobCnt;
+    uchar m = ImgBlob->blobCnt;
+    for(int i=0; i < n; i++){//Iterate through possible LED locations, except middle clk
+        if(i == 2)//Skip middle LED
+            continue;
+        uint ledX = StartBlob->AvgX[i];
+        uint ledY = StartBlob->AvgY[i];
+        for(int j = 0; j < m; j++){
+            int dist = dist1(ledX,ImgBlob->AvgX[j],ledY,ImgBlob->AvgY[j]);
+            if(dist1(ledX,ImgBlob->AvgX[j],ledY,ImgBlob->AvgY[j]) < 25){
+                if(i > 2)
+                    nibble |= 1<<(i+1);
+                else
+                    nibble |= 1<<i;
+                break;
+            }
+        }
+    }
+    return nibble;
 }
 
 uint dist1(int x1, int x2, int y1, int y2){
@@ -400,5 +425,6 @@ void sort_blobs(blob_info *blobs){
     }
     return;
 }
+
 
 
