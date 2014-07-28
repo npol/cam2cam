@@ -20,7 +20,7 @@ struct blob_info {
     uint *AvgY;
 };
 /* Vision function prototypes */
-blob_info *capture_image(uchar debug);
+blob_info *capture_image(uchar debug,VideoCapture& capture);
 void get_image(Mat imgInput);
 vector<Mat> convert_to_hsv(Mat imgBGR);
 void write_hsv_images(vector<Mat> hsv);
@@ -35,95 +35,79 @@ void sort_blobs(blob_info *blobs);
 uint dist1(int x1, int x2, int y1, int y2);
 
 /* Protocol function prototypes */
-uchar is_start_condition(blob_info *BlobInfo);
-uchar is_first_nibble(blob_info *StartBlob, blob_info *FirstBlob);
+uchar is_start_condition(blob_info *BlobInfo,uchar debug);
+uchar is_first_nibble(blob_info *StartBlob, blob_info *FirstBlob,uchar debug);
 uchar is_second_nibble(blob_info *StartBlob, blob_info *SecondBlob);
 uchar get_nibble(blob_info *StartBlob, blob_info *ImgBlob);
-/*
+
 int main(){
+    uchar debug = 0;
+    //Start Camera
+    VideoCapture cap(-1);
+    cap.set(CV_CAP_PROP_FRAME_WIDTH,width);
+    cap.set(CV_CAP_PROP_FRAME_HEIGHT,height);
+    im_width = cap.get(CV_CAP_PROP_FRAME_WIDTH);
+    im_height = cap.get(CV_CAP_PROP_FRAME_HEIGHT);
+
     blob_info *start_blobs;
-    blob_info *img_blobs;
-    uchar RXbyte = 0;
-    uchar start = 0;
-    while(!start){
-        start_blobs = capture_image();
-        start = is_start_condition(img_blobs);
-    }
-    uchar first_nibble_start = 0;
-    while(!first_nibble_start){
-        img_blobs = capture_image();
-        first_nibble_start = is_first_nibble(img_blobs, start_blobs);
-    }
-    RXbyte = (get_nibble(img_blobs, start_blobs)) << 4;
-    uchar second_nibble_start = 0;
-    while(!second_nibble_start){
-        blob_info * img_blobs = capture_image();
-        second_nibble_start = is_second_nibble(img_blobs, start_blobs);
-    }
-    RXbyte |= get_nibble(img_blobs, start_blobs);
-    printf("%d\n",RXbyte);
-    return RXbyte
-}
-*/
-int main(){
-    blob_info *start_blobs;
-    start_blobs = capture_image(1);
+    while(1){
+    start_blobs = capture_image(debug,cap);
 
     uchar ctr = 0;
     blob_info *blobs = start_blobs;
-    while(ctr < 10){
-        if(is_start_condition(blobs)){
-            printf("Found start condition on frame %d\n",ctr);
+    while(1){
+        if(is_start_condition(blobs,debug)){
+            if(debug)
+                printf("Found start condition on frame %d\n",ctr);
             break;
         }
-        blobs = capture_image(1);
+        blobs = capture_image(debug,cap);
         ctr++;
     }
     //TODO: timeout condition
     ctr = 0;
     blob_info *start_blob = blobs;
-    blob_info *nibble_blob = capture_image(1);
-    while(ctr < 10){
-        if(is_first_nibble(start_blob, nibble_blob)){
-            printf("Found first nibble on frame %d\n",ctr);
+    blob_info *nibble_blob = capture_image(debug,cap);
+    while(1){
+        if(is_first_nibble(start_blob, nibble_blob,debug)){
+            if(debug)
+                printf("Found first nibble on frame %d\n",ctr);
             break;
         }
-        nibble_blob = capture_image(1);
+        nibble_blob = capture_image(debug,cap);
         ctr++;
     }
     //TODO: timeout condition
     //Get upper nibble
     uchar nib = get_nibble(start_blob, nibble_blob);
     uchar RXbyte = nib << 4;
-    printf("Upper Nibble:%x\n",nib);
+    if(debug)
+        printf("Upper Nibble:%x\n",nib);
     ctr = 0;
-    nibble_blob = capture_image(1);
-    while(ctr < 10){
+    nibble_blob = capture_image(debug,cap);
+    while(1){
         if(is_second_nibble(start_blob, nibble_blob)){
-            printf("Found second nibble on frame %d\n",ctr);
+            if(debug)
+                printf("Found second nibble on frame %d\n",ctr);
             break;
         }
-        nibble_blob = capture_image(1);
+        nibble_blob = capture_image(debug,cap);
         ctr++;
     }
     //Get lower nibble
     nib = get_nibble(start_blob, nibble_blob);
-    printf("Lower Niblle:%x\n",nib);
+    if(debug)
+        printf("Lower Nibble:%x\n",nib);
     RXbyte |= nib;
     printf("Received:%x\n",RXbyte);
+    }
     return 0;
 }
 
 /* Vision pipeline */
-blob_info *capture_image(uchar debug){
+blob_info *capture_image(uchar debug,VideoCapture& capture){
     /* Get single 320x240 frame */
     Mat imgBGR;
-    VideoCapture capture(-1);
-    //Set height and width parameters, then get them back
-    capture.set(CV_CAP_PROP_FRAME_WIDTH,width);
-    capture.set(CV_CAP_PROP_FRAME_HEIGHT,height);
-    im_width = capture.get(CV_CAP_PROP_FRAME_WIDTH);
-    im_height = capture.get(CV_CAP_PROP_FRAME_HEIGHT);
     if(!capture.isOpened()){
         cout << "Camera not Working" << endl;
     }
@@ -317,9 +301,10 @@ void print_blobs(blob_info *Blobs){
     return;
 }
 
-uchar is_start_condition(blob_info *BlobInfo){
+uchar is_start_condition(blob_info *BlobInfo,uchar debug){
     if(BlobInfo->blobCnt != 5){
-        printf("Found only %d blobs\n",BlobInfo->blobCnt);
+        if(debug)
+            printf("Found only %d blobs\n",BlobInfo->blobCnt);
         return 0;
     }
     int avg_y = 0;
@@ -329,17 +314,19 @@ uchar is_start_condition(blob_info *BlobInfo){
     avg_y = avg_y / 5;
     for(int i=0; i<5; i++){
         if(abs((int)(BlobInfo->AvgY[i]) - avg_y) > 25){
-            printf("Blobs too far away %d\n",abs(BlobInfo->AvgY[i] - avg_y));
+            if(debug)
+                printf("Blobs too far away %d\n",abs(BlobInfo->AvgY[i] - avg_y));
             return 0;
         }
     }
     return 1;
 }
 
-uchar is_first_nibble(blob_info *StartBlob, blob_info *FirstBlob){
+uchar is_first_nibble(blob_info *StartBlob, blob_info *FirstBlob,uchar debug){
     //Check that we are out of the start condition.  Max four LEDs since white clk is off
     if(FirstBlob->blobCnt > 4){
-        printf("More than four blobs\n");
+        if(debug)
+            printf("More than four blobs\n");
         return 0;
     }
     //Check if white clk LED is off
@@ -386,7 +373,7 @@ uchar get_nibble(blob_info *StartBlob, blob_info *ImgBlob){
             int dist = dist1(ledX,ImgBlob->AvgX[j],ledY,ImgBlob->AvgY[j]);
             if(dist1(ledX,ImgBlob->AvgX[j],ledY,ImgBlob->AvgY[j]) < 25){
                 if(i > 2)
-                    nibble |= 1<<(i+1);
+                    nibble |= 1<<(i-1);
                 else
                     nibble |= 1<<i;
                 break;
