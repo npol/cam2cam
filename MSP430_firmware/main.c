@@ -4,6 +4,7 @@
 /*
  * main.c
  */
+#define frame
 
 typedef enum {START,FIRST,SECOND} Seg;
 Seg tranSeg = START;
@@ -33,6 +34,7 @@ __interrupt void USCI_A1_ISR(void){
 	unsigned short data = UCA1RXBUF;
 	UCA1TXBUF = data;
 	unsigned short LEDout = 0;
+#ifdef frame
 	if(data == 's'){
 		LEDout = BIT0 + BIT1 + BIT2 + BIT3 + BIT4;
 		tranSeg = START;//Indicate just transmitted start condition
@@ -55,6 +57,22 @@ __interrupt void USCI_A1_ISR(void){
 		}
 	}
 	P6OUT = LEDout;
+#else
+	//Load Start condition
+	LEDout = BIT0 + BIT1 + BIT2 + BIT3 + BIT4;
+	//Wait tframe
+
+	//Load first nibble
+	LEDout = ((data << 1) & 0x1c) | (data & 0xf);
+	data >>= 4;
+	//Wait tframe
+	//Load second nibble
+	LEDout = ((data << 1) & 0x1c) | (data & 0x3);
+	//Wait tframe
+	//Off
+
+#endif
+
 }
 
 inline unsigned char is_valid(unsigned char data){
